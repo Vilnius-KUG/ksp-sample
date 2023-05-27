@@ -1,0 +1,23 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm'
+    id 'com.google.devtools.ksp' version '1.8.10-1.0.9'
+}
+
+group 'com.kavaliou.ksp.processor'
+version '1.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(":annotation")
+    implementation 'com.google.devtools.ksp:symbol-processing-api:1.8.10-1.0.9'
+
+    implementation "com.google.auto.service:auto-service:1.0.1"
+    ksp "dev.zacsweers.autoservice:auto-service-ksp:1.0.0"
+    implementation "com.google.auto.service:auto-service-annotations:1.0.1"
+
+    implementation("com.squareup:kotlinpoet:1.12.0")
+    implementation("com.squareup:kotlinpoet-ksp:1.12.0")
+}
