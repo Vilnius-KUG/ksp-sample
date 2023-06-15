@@ -16,27 +16,31 @@ internal fun generateModelClass(
     codeGenerator: CodeGenerator,
     logger: KSPLogger,
 ) {
-    val ksFile = dtoKsClassDeclaration.findFile()
+    val dtoPackage = dtoKsClassDeclaration.packageName.asString()
+    val dtoClassName = dtoKsClassDeclaration.simpleName.getShortName()
     val className = createName(dtoKsClassDeclaration)
-    logger.logging("[DtoToModel] Generating model class for DTO", dtoKsClassDeclaration)
+
+    logger.info("Generating $className class from $dtoClassName.", dtoKsClassDeclaration)
     val modelClass = TypeSpec.classBuilder(className)
-        .buildPrimaryConstructor(collectProperties(dtoKsClassDeclaration))
+        .buildPrimaryConstructor(collectProperties(dtoKsClassDeclaration, logger))
         .build()
-    logger.logging("[DtoToModel] Generating converter function for DTO", dtoKsClassDeclaration)
+
+    logger.info("Generating a converter function.")
     val converterFunction = buildConverterFunction(
-        dtoClassPackage = dtoKsClassDeclaration.packageName.asString(),
-        dtoClassName = dtoKsClassDeclaration.simpleName.getShortName(),
+        dtoClassPackage = dtoPackage,
+        dtoClassName = dtoClassName,
         modelClassTypeSpec = modelClass
     )
-    logger.logging("[DtoToModel] Writing generated code for DTO", dtoKsClassDeclaration)
-    FileSpec.builder(ksFile.packageName.asString(), className)
+
+    logger.info("Writing generated code to a file.")
+    FileSpec.builder(dtoPackage, className)
         .addType(modelClass)
         .addFunction(converterFunction)
         .build()
         .writeTo(
             codeGenerator = codeGenerator,
             // Dependencies: if something changes in the original `file` then output re-generates.
-            dependencies = Dependencies(aggregating = true, ksFile),
+            dependencies = Dependencies(aggregating = true, sources = arrayOf(dtoKsClassDeclaration.findFile())),
         )
 }
 
@@ -70,13 +74,18 @@ private fun createName(classDeclaration: KSClassDeclaration): String {
     }
 }
 
-private fun collectProperties(classDeclaration: KSClassDeclaration): Set<Pair<String, KSTypeReference>> {
+private fun collectProperties(
+    classDeclaration: KSClassDeclaration,
+    logger: KSPLogger,
+): Set<Pair<String, KSTypeReference>> {
     val visitor = object : KSVisitorVoid() {
         val propertiesSet = mutableSetOf<Pair<String, KSTypeReference>>()
 
         override fun visitPropertyDeclaration(property: KSPropertyDeclaration, data: Unit) {
             if (property.annotations.none { it.shortName.getShortName() == IgnoreInModel::class.simpleName }) {
                 propertiesSet.add(property.simpleName.getShortName() to property.type)
+            } else {
+                logger.info("Property has been ignored.", property)
             }
         }
     }
