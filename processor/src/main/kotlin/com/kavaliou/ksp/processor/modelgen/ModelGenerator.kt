@@ -10,45 +10,47 @@ import com.squareup.kotlinpoet.ksp.toKModifier
 import com.squareup.kotlinpoet.ksp.toTypeName
 import com.squareup.kotlinpoet.ksp.writeTo
 
-/** Generates model classes. */
-internal fun generateModelClasses(
+/** Generates model class. */
+internal fun generateModelClass(
+    dtoKsClassDeclaration: KSClassDeclaration,
     codeGenerator: CodeGenerator,
     logger: KSPLogger,
-    fileToClassMap: MutableMap<KSFile, MutableSet<KSClassDeclaration>>
 ) {
-    fileToClassMap.forEach { (ksFile, classDeclarationSet) ->
-        logger.logging("[DtoToModel] converting classes in file", ksFile)
-        classDeclarationSet
-            .map { classDeclaration ->
-                logger.logging("[DtoToModel] converting class", classDeclaration)
-                val name = createName(classDeclaration)
-                val visitor = PropertyCollectorVisitor()
-                classDeclaration.getAllProperties().forEach {
-                    it.accept(visitor, Unit)
-                }
-                Triple(ksFile, classDeclaration, ModelClassData(name, visitor.propertiesSet))
-            }.forEach { (file, dtoClassDeclaration, data) ->
-                logger.logging("[DtoToModel] creating model class with name = ${data.name}")
-                // Build class and primary constructor.
-                val modelClassTypeSpec = TypeSpec.classBuilder(data.name)
-                    .buildPrimaryConstructor(data.properties)
-                    .build()
-                // Build file.
-                FileSpec.builder(
-                    packageName = file.packageName.asString(),
-                    fileName = data.name
-                ).addType(modelClassTypeSpec)
-                    // Build top level converter function.
-                    .buildConverter(dtoClassDeclaration, modelClassTypeSpec)
-                    .build()
-                    // Generate code.
-                    .writeTo(
-                        codeGenerator = codeGenerator,
-                        // Dependencies: if something changes in `file` then output file needs to be changed too.
-                        dependencies = Dependencies(true, file),
-                    )
-            }
+    val ksFile = dtoKsClassDeclaration.findFile()
+    val className = createName(dtoKsClassDeclaration)
+    logger.logging("[DtoToModel] Generating model class for DTO", dtoKsClassDeclaration)
+    val modelClass = TypeSpec.classBuilder(className)
+        .buildPrimaryConstructor(collectProperties(dtoKsClassDeclaration))
+        .build()
+    logger.logging("[DtoToModel] Generating converter function for DTO", dtoKsClassDeclaration)
+    val converterFunction = buildConverterFunction(
+        dtoClassPackage = dtoKsClassDeclaration.packageName.asString(),
+        dtoClassName = dtoKsClassDeclaration.simpleName.getShortName(),
+        modelClassTypeSpec = modelClass
+    )
+    logger.logging("[DtoToModel] Writing generated code for DTO", dtoKsClassDeclaration)
+    FileSpec.builder(ksFile.packageName.asString(), className)
+        .addType(modelClass)
+        .addFunction(converterFunction)
+        .build()
+        .writeTo(
+            codeGenerator = codeGenerator,
+            // Dependencies: if something changes in the original `file` then output re-generates.
+            dependencies = Dependencies(aggregating = true, ksFile),
+        )
+}
+
+/** Returns a [KSFile] where the node was defined. */
+private fun KSNode.findFile(): KSFile {
+    var parent = this.parent
+    while (parent != null) {
+        if (parent is KSFile) {
+            return parent
+        } else {
+            parent = parent.parent
+        }
     }
+    throw IllegalStateException("Can't find enclosing file!")
 }
 
 private fun createName(classDeclaration: KSClassDeclaration): String {
@@ -68,23 +70,25 @@ private fun createName(classDeclaration: KSClassDeclaration): String {
     }
 }
 
-private data class ModelClassData(
-    val name: String,
-    val properties: MutableSet<Pair<String, KSTypeReference>> = mutableSetOf(),
-)
+private fun collectProperties(classDeclaration: KSClassDeclaration): Set<Pair<String, KSTypeReference>> {
+    val visitor = object : KSVisitorVoid() {
+        val propertiesSet = mutableSetOf<Pair<String, KSTypeReference>>()
 
-private class PropertyCollectorVisitor : KSVisitorVoid() {
-    val propertiesSet = mutableSetOf<Pair<String, KSTypeReference>>()
-
-    override fun visitPropertyDeclaration(property: KSPropertyDeclaration, data: Unit) {
-        if (property.annotations.none { it.shortName.getShortName() == IgnoreInModel::class.simpleName }) {
-            propertiesSet.add(property.simpleName.getShortName() to property.type)
+        override fun visitPropertyDeclaration(property: KSPropertyDeclaration, data: Unit) {
+            if (property.annotations.none { it.shortName.getShortName() == IgnoreInModel::class.simpleName }) {
+                propertiesSet.add(property.simpleName.getShortName() to property.type)
+            }
         }
     }
+    classDeclaration.getAllProperties().forEach {
+        it.accept(visitor, Unit)
+    }
+
+    return visitor.propertiesSet
 }
 
 private fun TypeSpec.Builder.buildPrimaryConstructor(
-    properties: MutableSet<Pair<String, KSTypeReference>>
+    properties: Set<Pair<String, KSTypeReference>>
 ): TypeSpec.Builder {
     this.primaryConstructor(
         FunSpec.constructorBuilder()
@@ -109,11 +113,11 @@ private fun TypeSpec.Builder.buildPrimaryConstructor(
     return this
 }
 
-private fun FileSpec.Builder.buildConverter(
-    dtoClassDeclaration: KSClassDeclaration,
+private fun buildConverterFunction(
+    dtoClassPackage: String,
+    dtoClassName: String,
     modelClassTypeSpec: TypeSpec
-): FileSpec.Builder {
-    val packageString = dtoClassDeclaration.packageName.asString()
+): FunSpec {
     val constructorParamsString = modelClassTypeSpec.primaryConstructor
         ?.parameters
         ?.fold(StringBuilder()) { sb, spec ->
@@ -121,13 +125,9 @@ private fun FileSpec.Builder.buildConverter(
         }?.toString() ?: ""
     check(constructorParamsString.isNotEmpty())
 
-    this.addFunction(
-        FunSpec.builder(name = "to${modelClassTypeSpec.name}")
-            .receiver(ClassName.bestGuess("$packageString.${dtoClassDeclaration.simpleName.getShortName()}"))
-            .returns(ClassName.bestGuess("$packageString.${modelClassTypeSpec.name}"))
-            .addStatement("return ${modelClassTypeSpec.name}($constructorParamsString)")
-            .build()
-    )
-
-    return this
+    return FunSpec.builder(name = "to${modelClassTypeSpec.name}")
+        .receiver(ClassName.bestGuess("$dtoClassPackage.$dtoClassName"))
+        .returns(ClassName.bestGuess("$dtoClassPackage.${modelClassTypeSpec.name}"))
+        .addStatement("return ${modelClassTypeSpec.name}($constructorParamsString)")
+        .build()
 }
