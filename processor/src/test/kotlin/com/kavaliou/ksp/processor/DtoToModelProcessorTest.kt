@@ -43,7 +43,7 @@ class DtoToModelProcessorTest {
     
                 import kotlin.String
     
-                public class TestModel(
+                public data class TestModel(
                   public val id: String,
                   public val name: String,
                   public val surname: String,
@@ -87,7 +87,7 @@ class DtoToModelProcessorTest {
     
                 import kotlin.String
     
-                public class $className(
+                public data class $className(
                   public val id: String,
                   public val name: String,
                   public val surname: String,
@@ -131,7 +131,7 @@ class DtoToModelProcessorTest {
     
                 import kotlin.String
     
-                public class ${dtoClassName}Model(
+                public data class ${dtoClassName}Model(
                   public val id: String,
                   public val name: String,
                   public val surname: String,
@@ -176,7 +176,7 @@ class DtoToModelProcessorTest {
     
                 import kotlin.String
     
-                public class TestModel(
+                public data class TestModel(
                   public val name: String,
                   public val surname: String,
                 )
