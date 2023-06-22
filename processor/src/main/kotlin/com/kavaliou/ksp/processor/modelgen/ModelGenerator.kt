@@ -99,25 +99,27 @@ private fun collectProperties(
 private fun TypeSpec.Builder.buildPrimaryConstructor(
     properties: Set<Pair<String, KSTypeReference>>
 ): TypeSpec.Builder {
-    this.primaryConstructor(
-        FunSpec.constructorBuilder()
-            .addParameters(
-                properties.map { (name, typeReference) ->
-                    ParameterSpec.builder(
-                        name = name,
-                        type = typeReference.toTypeName(),
-                    ).build()
-                }
-            )
-            .build()
-    ).addProperties(
-        properties.map { (name, typeReference) ->
-            PropertySpec.builder(name = name, type = typeReference.toTypeName())
-                .initializer(name)
-                .addModifiers(typeReference.modifiers.mapNotNull { it.toKModifier() })
+    this
+        .addModifiers(KModifier.DATA)
+        .primaryConstructor(
+            FunSpec.constructorBuilder()
+                .addParameters(
+                    properties.map { (name, typeReference) ->
+                        ParameterSpec.builder(
+                            name = name,
+                            type = typeReference.toTypeName(),
+                        ).build()
+                    }
+                )
                 .build()
-        }
-    ).build()
+        ).addProperties(
+            properties.map { (name, typeReference) ->
+                PropertySpec.builder(name = name, type = typeReference.toTypeName())
+                    .initializer(name)
+                    .addModifiers(typeReference.modifiers.mapNotNull { it.toKModifier() })
+                    .build()
+            }
+        ).build()
 
     return this
 }
